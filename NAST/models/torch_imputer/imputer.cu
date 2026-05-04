@@ -13,6 +13,7 @@
 #include <ATen/TensorUtils.h>
 #include <c10/macros/Macros.h>
 #include <c10/util/Exception.h>
+#include <c10/cuda/CUDAException.h>
 
 #include <ATen/ATen.h>
 #include <ATen/Dispatch.h>
@@ -22,6 +23,10 @@
 #include <type_traits>
 
 using namespace at;
+
+#ifndef THCudaCheck
+#define THCudaCheck(EXPR) C10_CUDA_CHECK(EXPR)
+#endif
 
 // this ad-hoc converts from targets (l in [1]) to augmented targets (l' in [1])
 // so if l is l_0 l_1 ... l_(tl-1) then this looks up idx in

@@ -30,12 +30,16 @@ def average_checkpoints(inputs):
     num_models = len(inputs)
 
     for fpath in inputs:
+        # weights_only=False is required because fairseq checkpoints store
+        # argparse.Namespace and OmegaConf objects in the pickle, which the
+        # PyTorch 2.6+ default whitelist rejects. Only run on locally trained ckpts.
         with PathManager.open(fpath, "rb") as f:
             state = torch.load(
                 f,
                 map_location=(
                     lambda s, _: torch.serialization.default_restore_location(s, "cpu")
                 ),
+                weights_only=False,
             )
         # Copies over the settings from the first checkpoint
         if new_state is None:

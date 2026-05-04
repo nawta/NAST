@@ -1092,3 +1092,19 @@ def base_architecture(args):
     args.plain_ctc = getattr(args, "plain_ctc", False)
     args.ctc_beam_size = getattr(args, "ctc_beam_size", 20)
     args.wait_until = getattr(args, "wait_until", 0)
+
+
+@register_model_architecture(
+    "nonautoregressive_streaming_transformer",
+    "nonautoregressive_streaming_transformer_iwslt",
+)
+def iwslt_architecture(args):
+    # IWSLT14 (~160k pairs): shrink FFN 2048->1024 and heads 8->4 to match
+    # the standard transformer_iwslt_de_en footprint; layers and embed_dim
+    # stay at base (6 / 512). Higher dropout 0.3 vs base 0.1 to curb overfitting.
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 1024)
+    args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 1024)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 4)
+    args.dropout = getattr(args, "dropout", 0.3)
+    base_architecture(args)

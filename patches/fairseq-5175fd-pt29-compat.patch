@@ -1,0 +1,69 @@
+diff --git a/fairseq/checkpoint_utils.py b/fairseq/checkpoint_utils.py
+index 73374bed..34dde03c 100644
+--- a/fairseq/checkpoint_utils.py
++++ b/fairseq/checkpoint_utils.py
+@@ -312,7 +312,7 @@ def load_checkpoint_to_cpu(path, arg_overrides=None, load_on_all_ranks=False):
+         local_path = PathManager.get_local_path(path)
+ 
+     with open(local_path, "rb") as f:
+-        state = torch.load(f, map_location=torch.device("cpu"))
++        state = torch.load(f, map_location=torch.device("cpu"), weights_only=False)
+ 
+     if "args" in state and state["args"] is not None and arg_overrides is not None:
+         args = state["args"]
+@@ -876,6 +876,7 @@ def load_ema_from_checkpoint(fpath):
+             map_location=(
+                 lambda s, _: torch.serialization.default_restore_location(s, "cpu")
+             ),
++            weights_only=False,
+         )
+ 
+         # EMA model is stored in a separate "extra state"
+diff --git a/fairseq/data/data_utils.py b/fairseq/data/data_utils.py
+index 9cd88ca7..2cf665bd 100644
+--- a/fairseq/data/data_utils.py
++++ b/fairseq/data/data_utils.py
+@@ -485,7 +485,7 @@ def compute_mask_indices(
+             for length in sorted(lengths, reverse=True):
+                 lens = np.fromiter(
+                     (e - s if e - s >= length + min_space else 0 for s, e in parts),
+-                    np.int,
++                    np.int64,
+                 )
+                 l_sum = np.sum(lens)
+                 if l_sum == 0:
+diff --git a/fairseq/data/indexed_dataset.py b/fairseq/data/indexed_dataset.py
+index d0843926..54f76dc9 100644
+--- a/fairseq/data/indexed_dataset.py
++++ b/fairseq/data/indexed_dataset.py
+@@ -120,7 +120,7 @@ _code_to_dtype = {
+     3: np.int16,
+     4: np.int32,
+     5: np.int64,
+-    6: np.float,
++    6: np.float32,
+     7: np.double,
+     8: np.uint16,
+     9: np.uint32,
+@@ -327,7 +327,7 @@ class IndexedDatasetBuilder:
+         np.int16: 2,
+         np.int32: 4,
+         np.int64: 8,
+-        np.float: 4,
++        np.float32: 4,
+         np.double: 8,
+     }
+ 
+diff --git a/fairseq/modules/dynamic_crf_layer.py b/fairseq/modules/dynamic_crf_layer.py
+index 8fcc6b8d..6a516111 100644
+--- a/fairseq/modules/dynamic_crf_layer.py
++++ b/fairseq/modules/dynamic_crf_layer.py
+@@ -105,7 +105,7 @@ class DynamicCRF(nn.Module):
+         beam = beam if beam is not None else self.beam
+         batch_size, seq_len = emissions.size()[:2]
+         if targets is not None:
+-            _emissions = emissions.scatter(2, targets[:, :, None], np.float("inf"))
++            _emissions = emissions.scatter(2, targets[:, :, None], float("inf"))
+             beam_targets = _emissions.topk(beam, 2)[1]
+             beam_emission_scores = emissions.gather(2, beam_targets)
+         else:

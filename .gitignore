@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Working directory: data, checkpoints, logs are produced by training and not tracked.
+work/
+
+# Local moses clone for tokenization (cloned in Phase 3).
+mosesdecoder/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code runtime state
+.claude/

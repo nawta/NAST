@@ -198,6 +198,77 @@ cat $gen | grep -P "^D-" | sort -V |cut -f 2- > $gen.tok
 
 perl multi-bleu.perl -lc $ref < $gen.tok
 ```
+## Reproduction on IWSLT14 DE-EN (this fork)
+
+This fork reproduces NAST on **IWSLT14 DE-EN** (~160k pairs) instead of the WMT15 setup in the paper, so the absolute BLEU values are not directly comparable to the published numbers — the goal is to verify whether NAST's quality–latency Pareto shape generalizes to a smaller dataset.
+
+### Setup
+
+- **Hardware**: 1 × NVIDIA RTX PRO 6000 Blackwell (sm_120, 96 GB)
+- **Stack**: Python 3.10.13 + PyTorch 2.9.1+cu130 (Blackwell-supported wheel) + fairseq @ `5175fd5` patched for PyTorch 2.x compatibility (np.float→np.float32, `torch.load(weights_only=False)`, `THCudaCheck`→`C10_CUDA_CHECK`)
+- **Data**: HuggingFace `bbaaaa/iwslt14-de-en` → moses tokenize + lowercase + BPE 10k joined → fairseq-preprocess
+- **Architecture**: new `nonautoregressive_streaming_transformer_iwslt` (FFN 1024, heads 4, dropout 0.3)
+
+### Training schedule
+
+- **Stage-1**: max-tokens 32768 × update-freq 2 = 64k effective batch on 1 GPU, ~75k wps. Stopped early at epoch 48 (3700 updates, val_loss 2.742) due to small-data overfitting; `checkpoint_best.pt` is used as the Stage-2 init.
+- **Stage-2**: max-tokens 16384 × update-freq 4 = 64k effective batch (vs paper's 256k), 8000 updates per Pareto point, ~2.2 h each.
+
+### Pareto results (5 points)
+
+| Point | wait_until | latency_factor | latency_threshold | **BLEU** | **AL** | CW | AP | DAL |
+|-------|-----------|----------------|-------------------|----------|--------|------|------|------|
+| **P1** (low-latency)  | 1 | 1.0 | 3.0 | **24.42** | **1.86** | 1.63 | 0.58 | 3.16 |
+| **P2**                | 3 | 1.0 | 4.5 | **25.20** | **3.82** | 1.89 | 0.67 | 5.19 |
+| **P3** (balanced)     | 5 | 0.5 | 5.0 | **25.46** | **5.73** | 2.30 | 0.75 | 7.11 |
+| **P4**                | 7 | 0.3 | 6.0 | **25.69** | **7.57** | 2.92 | 0.80 | 8.91 |
+| **P5** (high-quality) | 9 | 0.0 | 0.0 | **25.45** | **9.34** | 3.73 | 0.85 | 10.62 |
+
+BLEU is `multi-bleu.perl -lc`. Latency metrics are from `generate_streaming.py`.
+
+### Observations
+
+- The quality–latency Pareto curve is **monotonic up to P4 and saturates by P5** — increasing AL beyond ~7 brings no further BLEU gain on IWSLT14.
+- Going from P4 (AL 7.57) down to P1 (AL 1.86) costs only **1.27 BLEU points**, reproducing NAST's headline property that low-latency settings remain close in quality to higher-latency ones.
+- Absolute BLEU is ~5 points below the WMT15 numbers in the paper; this is expected given (a) the smaller IWSLT14 training set, (b) the early Stage-1 stop, and (c) the smaller IWSLT-style architecture (FFN 1024 vs 2048).
+
+### How to reproduce
+
+```bash
+# 0. environment (Blackwell sm_120 setup; for older GPUs override TORCH_CUDA_ARCH_LIST)
+conda create -n nast python=3.10.13 -y && conda activate nast
+conda install -c nvidia cuda-toolkit -y    # 13.x toolkit; needed for nvcc that supports sm_120
+pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu130
+pip install datasets==2.19.0 omegaconf==2.0.6 hydra-core==1.0.7 'numpy<2' \
+            sacrebleu==2.4.2 sacremoses==0.1.1 subword-nmt==0.3.8 tensorboardX==2.6.2 ninja
+# submodule path was renamed to fairseq_repo to avoid Python namespace shadowing.
+# Existing clones must run `git submodule sync --recursive` before update.
+git submodule sync --recursive
+git submodule update --init --recursive
+# Apply local patches required for PyTorch 2.x / NumPy 1.20+ compatibility (see patches/README.md).
+( cd fairseq_repo && git apply ../patches/fairseq-5175fd-pt29-compat.patch )
+cd fairseq_repo && pip install -e . && cd ..
+
+# 1. data
+python work/scripts/01_dump_hf_to_text.py
+bash   work/scripts/02_tokenize.sh
+bash   work/scripts/03_bpe.sh
+fairseq-preprocess --source-lang de --target-lang en \
+  --trainpref work/data/iwslt14.bpe/train --validpref work/data/iwslt14.bpe/valid \
+  --testpref  work/data/iwslt14.bpe/test  --destdir   work/data-bin/iwslt14.de-en.joined \
+  --joined-dictionary --workers 8
+
+# 2. Stage-1 (early stop on val loss recommended)
+bash shell_scripts/train_stage1.sh
+
+# 3. Stage-2 Pareto sweep (5 points)
+STAGE1_AVG=work/checkpoints/iwslt14_s1/checkpoint_best.pt bash shell_scripts/run_pareto.sh
+
+# 4. evaluation per point
+EXP=iwslt14_s2_p3 AVG_CKPT=work/checkpoints/iwslt14_s2_p3/avg5.pt WAIT_UNTIL=5 \
+  bash shell_scripts/test.sh
+```
+
 ## Citing
 
 Please kindly cite us if you find our papers or codes useful.
